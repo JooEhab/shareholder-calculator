@@ -103,7 +103,7 @@ def save_data():
 # -------------------------
 def reset_data():
     st.session_state.reset_triggered = True
-    st.experimental_rerun()
+    st.rerun()
 
 
 def apply_reset():
@@ -141,12 +141,12 @@ def display_shareholders():
                             "name": new_name.strip(),
                             "shares": float(new_shares)
                         }
-                        st.experimental_rerun()
+                        st.rerun()
                     except ValueError:
                         st.warning(t("error_input"))
         if col3.button(t("delete"), key=f"delete_{i}"):
             st.session_state.shareholders.pop(i)
-            st.experimental_rerun()
+            st.rerun()
 
 
 def calculate_profits():
