@@ -2,11 +2,10 @@ import streamlit as st
 import json
 import os
 
-# File for saving persistent data
 DATA_FILE = "shareholders_data.json"
 
 # -------------------------
-# Language Setup
+# Language Definitions
 # -------------------------
 LANGUAGES = {
     "ar": {
@@ -51,30 +50,68 @@ LANGUAGES = {
     }
 }
 
+
 # -------------------------
-# Helper Functions
+# State Initialization
+# -------------------------
+def init_state():
+    defaults = {
+        "lang": "ar",
+        "shareholders": [],
+        "total_profit": "",
+        "reset_triggered": False
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+# -------------------------
+# Localization
 # -------------------------
 def t(key, **kwargs):
     return LANGUAGES[st.session_state.lang][key].format(**kwargs) if kwargs else LANGUAGES[st.session_state.lang][key]
 
-def init_state():
-    st.session_state.setdefault("lang", "ar")
-    st.session_state.setdefault("shareholders", [])
-    st.session_state.setdefault("total_profit", "")
 
+# -------------------------
+# Data Persistence
+# -------------------------
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            st.session_state.shareholders = data.get("shareholders", [])
-            st.session_state.total_profit = data.get("total_profit", "")
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                st.session_state.shareholders = data.get("shareholders", [])
+                st.session_state.total_profit = data.get("total_profit", "")
+        except Exception as e:
+            st.error("❌ Failed to load saved data.")
+
 
 def save_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump({
-            "shareholders": st.session_state.shareholders,
-            "total_profit": st.session_state.total_profit
-        }, f, ensure_ascii=False, indent=2)
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "shareholders": st.session_state.shareholders,
+                "total_profit": st.session_state.total_profit
+            }, f, ensure_ascii=False, indent=2)
+        st.success("✅ " + t("save"))
+    except Exception as e:
+        st.error("❌ Failed to save data.")
+
+
+# -------------------------
+# UI Functions
+# -------------------------
+def reset_data():
+    st.session_state.reset_triggered = True
+    st.experimental_rerun()
+
+
+def apply_reset():
+    st.session_state.shareholders = []
+    st.session_state.total_profit = ""
+    st.session_state.reset_triggered = False
+    st.success(t("reset_done"))
+
 
 def add_shareholder(name, shares):
     try:
@@ -85,59 +122,12 @@ def add_shareholder(name, shares):
     except ValueError:
         st.warning(t("error_input"))
 
-def delete_shareholder(index):
-    st.session_state.shareholders.pop(index)
 
-def calculate_results():
-    try:
-        total_profit = float(st.session_state.total_profit)
-        valid_shareholders = st.session_state.shareholders
-        total_shares = sum(s["shares"] for s in valid_shareholders)
+def display_shareholders():
+    if not st.session_state.shareholders:
+        return
 
-        if total_shares == 0:
-            st.warning(t("no_shares"))
-            return
-
-        st.markdown(f"### {t('total_profit_val', val=total_profit)}")
-        st.markdown(f"### {t('total_shares', val=total_shares)}")
-
-        for s in valid_shareholders:
-            percent = (s["shares"] / total_shares) * 100
-            profit = (s["shares"] / total_shares) * total_profit
-            st.text(t("result_item", name=s["name"], shares=s["shares"], percent=percent, profit=profit))
-
-    except ValueError:
-        st.error(t("error_profit"))
-
-def reset_data():
-    st.session_state.shareholders = []
-    st.session_state.total_profit = ""
-    st.success(t("reset_done"))
-
-
-# -------------------------
-# Streamlit App Layout
-# -------------------------
-init_state()
-load_data()
-
-# Sidebar language toggle
-lang_options = {"العربية": "ar", "English": "en"}
-selected = st.sidebar.selectbox("🌐 " + t("language"), options=list(lang_options.keys()))
-st.session_state.lang = lang_options[selected]
-
-st.title(t("title"))
-
-# Form to add new shareholder
-with st.form("add_form"):
-    name = st.text_input(t("name"))
-    shares = st.text_input(t("shares"))
-    if st.form_submit_button(t("add")):
-        add_shareholder(name, shares)
-
-# Shareholders list
-if st.session_state.shareholders:
-    st.subheader("📋 " + t("title"))
+    st.subheader("📋")
     for i, sh in enumerate(st.session_state.shareholders):
         col1, col2, col3 = st.columns([3, 1, 1])
         col1.markdown(f"- **{sh['name']}** – {sh['shares']}")
@@ -147,26 +137,78 @@ if st.session_state.shareholders:
                 new_shares = st.text_input("Shares", value=str(sh["shares"]), key=f"shares_{i}")
                 if st.button("✔️ Save", key=f"save_{i}"):
                     try:
-                        st.session_state.shareholders[i] = {"name": new_name.strip(), "shares": float(new_shares)}
+                        st.session_state.shareholders[i] = {
+                            "name": new_name.strip(),
+                            "shares": float(new_shares)
+                        }
                         st.experimental_rerun()
                     except ValueError:
                         st.warning(t("error_input"))
         if col3.button(t("delete"), key=f"delete_{i}"):
-            delete_shareholder(i)
+            st.session_state.shareholders.pop(i)
             st.experimental_rerun()
 
-# Profit input and calculation
-st.text_input(t("total_profit"), key="total_profit")
-if st.button(t("calculate")):
-    calculate_results()
 
-# Buttons at the bottom
+def calculate_profits():
+    try:
+        total_profit = float(st.session_state.total_profit)
+        shareholders = st.session_state.shareholders
+        total_shares = sum(s["shares"] for s in shareholders)
+
+        if total_shares == 0:
+            st.warning(t("no_shares"))
+            return
+
+        st.markdown(f"### {t('total_profit_val', val=total_profit)}")
+        st.markdown(f"### {t('total_shares', val=total_shares)}")
+        for s in shareholders:
+            percent = (s["shares"] / total_shares) * 100
+            profit = (s["shares"] / total_shares) * total_profit
+            st.text(t("result_item", name=s["name"], shares=s["shares"], percent=percent, profit=profit))
+
+    except ValueError:
+        st.error(t("error_profit"))
+
+
+# -------------------------
+# App Start
+# -------------------------
+init_state()
+load_data()
+
+# Language Selector
+lang_options = {"العربية": "ar", "English": "en"}
+selected_lang = st.sidebar.selectbox("🌐 " + t("language"), options=list(lang_options.keys()))
+st.session_state.lang = lang_options[selected_lang]
+
+# Title
+st.title(t("title"))
+
+# Input Form
+with st.form("add_form"):
+    name = st.text_input(t("name"))
+    shares = st.text_input(t("shares"))
+    if st.form_submit_button(t("add")):
+        add_shareholder(name, shares)
+
+# Shareholders Table
+display_shareholders()
+
+# Profit Input
+st.text_input(t("total_profit"), key="total_profit")
+
+# Buttons
 colA, colB, colC = st.columns(3)
 with colA:
+    if st.button(t("calculate")):
+        calculate_profits()
+with colB:
     if st.button(t("reset")):
         reset_data()
-with colB:
+with colC:
     if st.button(t("save")):
         save_data()
-        st.success("✅ Saved!")
 
+# Post-reset logic
+if st.session_state.reset_triggered:
+    apply_reset()
