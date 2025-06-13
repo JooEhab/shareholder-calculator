@@ -5,7 +5,7 @@ import os
 DATA_FILE = "shareholders_data.json"
 
 # -------------------------
-# Language Definitions
+# Language Configuration
 # -------------------------
 LANGUAGES = {
     "ar": {
@@ -52,38 +52,35 @@ LANGUAGES = {
 
 
 # -------------------------
-# State Initialization
+# Initialize App State
 # -------------------------
 def init_state():
-    defaults = {
-        "lang": "ar",
-        "shareholders": [],
-        "total_profit": "",
-        "reset_triggered": False
-    }
-    for key, value in defaults.items():
-        st.session_state.setdefault(key, value)
+    if "lang" not in st.session_state:
+        st.session_state.lang = "ar"
+    if "shareholders" not in st.session_state:
+        st.session_state.shareholders = []
+    if "reset_flag" not in st.session_state:
+        st.session_state.reset_flag = False
+    if "total_profit_input" not in st.session_state:
+        st.session_state.total_profit_input = ""
+    if "edit_mode" not in st.session_state:
+        st.session_state.edit_mode = None
 
 
-# -------------------------
-# Localization
-# -------------------------
 def t(key, **kwargs):
-    return LANGUAGES[st.session_state.lang][key].format(**kwargs) if kwargs else LANGUAGES[st.session_state.lang][key]
+    lang = st.session_state.lang
+    return LANGUAGES[lang][key].format(**kwargs) if kwargs else LANGUAGES[lang][key]
 
 
-# -------------------------
-# Data Persistence
-# -------------------------
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 st.session_state.shareholders = data.get("shareholders", [])
-                st.session_state.total_profit = data.get("total_profit", "")
-        except Exception as e:
-            st.error("❌ Failed to load saved data.")
+                st.session_state.total_profit_input = data.get("total_profit", "")
+        except Exception:
+            st.error("❌ Failed to load data")
 
 
 def save_data():
@@ -91,124 +88,129 @@ def save_data():
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "shareholders": st.session_state.shareholders,
-                "total_profit": st.session_state.total_profit
+                "total_profit": st.session_state.total_profit_input
             }, f, ensure_ascii=False, indent=2)
         st.success("✅ " + t("save"))
-    except Exception as e:
-        st.error("❌ Failed to save data.")
+    except Exception:
+        st.error("❌ Failed to save data")
 
 
 # -------------------------
-# UI Functions
+# Reset Handling
 # -------------------------
-def reset_data():
-    st.session_state.reset_triggered = True
+def trigger_reset():
+    st.session_state.reset_flag = True
     st.rerun()
 
 
-def apply_reset():
+def perform_reset():
     st.session_state.shareholders = []
-    st.session_state.total_profit = ""
-    st.session_state.reset_triggered = False
+    st.session_state.total_profit_input = ""
+    st.session_state.reset_flag = False
     st.success(t("reset_done"))
 
 
-def add_shareholder(name, shares):
-    try:
-        shares = float(shares)
-        if not name.strip() or shares <= 0:
-            raise ValueError
-        st.session_state.shareholders.append({"name": name.strip(), "shares": shares})
-    except ValueError:
-        st.warning(t("error_input"))
+# -------------------------
+# App Logic
+# -------------------------
+init_state()
 
+if st.session_state.reset_flag:
+    perform_reset()
 
-def display_shareholders():
-    if not st.session_state.shareholders:
-        return
+load_data()
 
-    st.subheader("📋")
+# -------------------------
+# Sidebar Language Switch
+# -------------------------
+lang_label = st.sidebar.selectbox("🌐 " + t("language"), ["العربية", "English"])
+st.session_state.lang = "ar" if lang_label == "العربية" else "en"
+
+# -------------------------
+# App Title
+# -------------------------
+st.title(t("title"))
+
+# -------------------------
+# Shareholder Form
+# -------------------------
+with st.form("add_form"):
+    name = st.text_input(t("name"))
+    shares = st.text_input(t("shares"))
+    submitted = st.form_submit_button(t("add"))
+
+    if submitted:
+        try:
+            shares_val = float(shares)
+            if not name.strip() or shares_val <= 0:
+                raise ValueError
+            st.session_state.shareholders.append({"name": name.strip(), "shares": shares_val})
+        except ValueError:
+            st.warning(t("error_input"))
+
+# -------------------------
+# Display Shareholders
+# -------------------------
+if st.session_state.shareholders:
     for i, sh in enumerate(st.session_state.shareholders):
         col1, col2, col3 = st.columns([3, 1, 1])
         col1.markdown(f"- **{sh['name']}** – {sh['shares']}")
+
         if col2.button(t("edit"), key=f"edit_{i}"):
-            with st.expander(t("edit") + f": {sh['name']}", expanded=True):
-                new_name = st.text_input("Name", value=sh["name"], key=f"name_{i}")
-                new_shares = st.text_input("Shares", value=str(sh["shares"]), key=f"shares_{i}")
-                if st.button("✔️ Save", key=f"save_{i}"):
-                    try:
-                        st.session_state.shareholders[i] = {
-                            "name": new_name.strip(),
-                            "shares": float(new_shares)
-                        }
-                        st.rerun()
-                    except ValueError:
-                        st.warning(t("error_input"))
+            st.session_state.edit_mode = i
+
         if col3.button(t("delete"), key=f"delete_{i}"):
             st.session_state.shareholders.pop(i)
             st.rerun()
 
+    # Editing Form
+    if st.session_state.edit_mode is not None:
+        idx = st.session_state.edit_mode
+        sh = st.session_state.shareholders[idx]
+        with st.form("edit_form"):
+            new_name = st.text_input(t("name"), value=sh["name"])
+            new_shares = st.text_input(t("shares"), value=str(sh["shares"]))
+            save_btn = st.form_submit_button("✔️ Save")
+            if save_btn:
+                try:
+                    st.session_state.shareholders[idx] = {
+                        "name": new_name.strip(),
+                        "shares": float(new_shares)
+                    }
+                    st.session_state.edit_mode = None
+                    st.rerun()
+                except ValueError:
+                    st.warning(t("error_input"))
 
-def calculate_profits():
+# -------------------------
+# Profit Calculation Section
+# -------------------------
+st.text_input(t("total_profit"), key="total_profit_input")
+
+if st.button(t("calculate")):
     try:
-        total_profit = float(st.session_state.total_profit)
+        profit_total = float(st.session_state.total_profit_input)
         shareholders = st.session_state.shareholders
         total_shares = sum(s["shares"] for s in shareholders)
 
         if total_shares == 0:
             st.warning(t("no_shares"))
-            return
-
-        st.markdown(f"### {t('total_profit_val', val=total_profit)}")
-        st.markdown(f"### {t('total_shares', val=total_shares)}")
-        for s in shareholders:
-            percent = (s["shares"] / total_shares) * 100
-            profit = (s["shares"] / total_shares) * total_profit
-            st.text(t("result_item", name=s["name"], shares=s["shares"], percent=percent, profit=profit))
-
+        else:
+            st.markdown(f"### {t('total_profit_val', val=profit_total)}")
+            st.markdown(f"### {t('total_shares', val=total_shares)}")
+            for s in shareholders:
+                percent = (s["shares"] / total_shares) * 100
+                profit = (s["shares"] / total_shares) * profit_total
+                st.text(t("result_item", name=s["name"], shares=s["shares"], percent=percent, profit=profit))
     except ValueError:
         st.error(t("error_profit"))
 
-
 # -------------------------
-# App Start
+# Footer Controls
 # -------------------------
-init_state()
-load_data()
+col1, col2 = st.columns(2)
+if col1.button(t("reset")):
+    trigger_reset()
 
-# Language Selector
-lang_options = {"العربية": "ar", "English": "en"}
-selected_lang = st.sidebar.selectbox("🌐 " + t("language"), options=list(lang_options.keys()))
-st.session_state.lang = lang_options[selected_lang]
-
-# Title
-st.title(t("title"))
-
-# Input Form
-with st.form("add_form"):
-    name = st.text_input(t("name"))
-    shares = st.text_input(t("shares"))
-    if st.form_submit_button(t("add")):
-        add_shareholder(name, shares)
-
-# Shareholders Table
-display_shareholders()
-
-# Profit Input
-st.text_input(t("total_profit"), key="total_profit")
-
-# Buttons
-colA, colB, colC = st.columns(3)
-with colA:
-    if st.button(t("calculate")):
-        calculate_profits()
-with colB:
-    if st.button(t("reset")):
-        reset_data()
-with colC:
-    if st.button(t("save")):
-        save_data()
-
-# Post-reset logic
-if st.session_state.reset_triggered:
-    apply_reset()
+if col2.button(t("save")):
+    save_data()
